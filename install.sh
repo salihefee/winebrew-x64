@@ -43,7 +43,7 @@ install_package() {
 
 # === Ensure required tools ===
 require_dependencies() {
-    for dep in jq unzip wget; do
+    for dep in jq unzip tar; do
         if ! command -v "$dep" &> /dev/null; then
             warn "'$dep' is not installed. Attempting to install..."
             install_package "$dep" || {
@@ -52,6 +52,24 @@ require_dependencies() {
             }
         fi
     done
+
+    if ! command -v wget &> /dev/null && ! command -v curl &> /dev/null; then
+        warn "Neither 'wget' nor 'curl' is installed. Attempting to install curl..."
+        install_package curl || {
+            error "Could not install a download tool."
+            exit 1
+        }
+    fi
+
+    if ! command -v xz &> /dev/null; then
+        local xz_package="xz"
+        command -v apt &> /dev/null && xz_package="xz-utils"
+        warn "'xz' is not installed. Attempting to install $xz_package..."
+        install_package "$xz_package" || {
+            error "Could not install required dependency: $xz_package"
+            exit 1
+        }
+    fi
 }
 
 # === Begin installation ===
@@ -69,9 +87,9 @@ info "winebrew copied to $TARGET_DIR"
 require_dependencies
 
 # === Run initial setup steps ===
+"$TARGET_DIR/winebrew" --update-wine-osu
 "$TARGET_DIR/winebrew" --fix-prefix
 "$TARGET_DIR/winebrew" --install-storybrew
-"$TARGET_DIR/winebrew" --update-wine-osu
 "$TARGET_DIR/winebrew" --install-desktop
 
 info "winebrew installation complete."

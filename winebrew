@@ -12,9 +12,13 @@ export VERSION_DIR="$HOME/.local/share/winebrew"
 
 # === Wine-osu configuration ===
 export WINE_OSU_DIR="$HOME/.local/share/winebrew/wine-osu"
-export WINE_OSU_VERSION="10.10-2"
+export WINE_OSU_VERSION="11.12-3"
 export WINE_OSU_VERSION_FILE="$VERSION_DIR/wine-osu-version"
 export WINE_OSU_BIN="$WINE_OSU_DIR/bin/wine"
+export WINE_OSU_WINEBOOT="$WINE_OSU_DIR/bin/wineboot"
+export PREFIX_ARCH_FILE="$VERSION_DIR/prefix-architecture"
+export RUN_AS_LINUX_PATH="$HOME/.local/bin/run_as_linux"
+export RUN_AS_LINUX_MARKER="$VERSION_DIR/run-as-linux-installed"
 
 # === PATH configuration ===
 export PATH="$WINE_OSU_DIR/bin:$PATH"
@@ -34,11 +38,44 @@ download_file() {
         wget -q --show-progress -O "$output_path" "$url"
         return $?
     elif command -v curl &>/dev/null; then
-        curl -L --progress-bar -o "$output_path" "$url"
+        curl -fL --progress-bar -o "$output_path" "$url"
         return $?
     else
         error "Neither wget nor curl is installed. Cannot download file."
         return 1
+    fi
+}
+
+fetch_url() {
+    local url="$1"
+
+    if command -v wget &>/dev/null; then
+        wget -qO- "$url"
+    elif command -v curl &>/dev/null; then
+        curl -fsSL "$url"
+    else
+        error "Neither wget nor curl is installed. Cannot fetch URL." >&2
+        return 1
+    fi
+}
+
+ensure_wine_osu() {
+    local installed_version=""
+    [[ -f "$WINE_OSU_VERSION_FILE" ]] && installed_version=$(<"$WINE_OSU_VERSION_FILE")
+
+    if [[ "$installed_version" != "$WINE_OSU_VERSION" || ! -x "$WINE_OSU_BIN" ]]; then
+        warn "Bundled wine-osu is missing or outdated. Installing it now..."
+        update_wine_osu || return 1
+    fi
+}
+
+ensure_x64_prefix() {
+    local prefix_arch=""
+    [[ -f "$PREFIX_ARCH_FILE" ]] && prefix_arch=$(<"$PREFIX_ARCH_FILE")
+
+    if [[ "$prefix_arch" != "x64" || ! -d "$WINEPREFIX/drive_c" ]]; then
+        info "Preparing the Wine prefix for x64 Storybrew..."
+        fixprefix || return 1
     fi
 }
 
@@ -85,7 +122,7 @@ for arg in "$@"; do
     if [[ "$arg" == -* ]]; then
     ARGS+=( "$arg" )
     else
-    ARGS+=( "$(winepath -u "$arg")" )
+    ARGS+=( "$("$HOME/.local/share/winebrew/wine-osu/bin/winepath" -u "$arg")" )
     fi
 done
 
@@ -94,7 +131,11 @@ EOF
 
     chmod +x "$bin_dir/code"
     local unix_path="Z:\\${bin_dir//\//\\}"
-    wine reg add "HKCU\\Environment" /v PATH /t REG_EXPAND_SZ /d "%PATH%;$unix_path" /f
+    ensure_wine_osu || return 1
+    if ! "$WINE_OSU_BIN" reg add "HKCU\\Environment" /v PATH /t REG_EXPAND_SZ /d "%PATH%;$unix_path" /f; then
+        error "Failed to configure the VSCode passthrough."
+        return 1
+    fi
     info "VSCode passthrough setup complete."
 }
 
@@ -106,7 +147,7 @@ install_storybrew() {
     fi
 
     info "Checking for latest Storybrew release..."
-    release_data=$(curl -s https://api.github.com/repos/damnae/storybrew/releases/latest)
+    release_data=$(fetch_url https://api.github.com/repos/damnae/storybrew/releases/latest)
     zip_url=$(echo "$release_data" | grep browser_download_url | grep -E '\.zip"' | cut -d '"' -f 4)
 
     if [[ -z "$zip_url" ]]; then
@@ -137,12 +178,14 @@ install_storybrew() {
 # === Update Storybrew ===
 update_storybrew() {
     info "Checking for Storybrew updates..."
+    ensure_wine_osu || return 1
+    ensure_x64_prefix || return 1
 
     # Get current installed version if available
     local current_version=""
     if [[ -f "$STORYBREW_EXE" ]]; then
         # Try to extract version from the executable (this is best effort)
-        current_version=$(wine "$STORYBREW_EXE" --version 2>/dev/null | head -n1 || echo "unknown")
+        current_version=$("$WINE_OSU_BIN" "$STORYBREW_EXE" --version 2>/dev/null | head -n1 || echo "unknown")
         info "Current Storybrew version: $current_version"
     else
         info "Storybrew is not currently installed."
@@ -150,7 +193,7 @@ update_storybrew() {
 
     # Get latest release info
     info "Fetching latest Storybrew release information..."
-    release_data=$(curl -s https://api.github.com/repos/damnae/storybrew/releases/latest)
+    release_data=$(fetch_url https://api.github.com/repos/damnae/storybrew/releases/latest)
     latest_version=$(echo "$release_data" | jq -r .tag_name 2>/dev/null || echo "")
     zip_url=$(echo "$release_data" | grep browser_download_url | grep -E '\.zip"' | cut -d '"' -f 4)
 
@@ -224,49 +267,71 @@ update_storybrew() {
 
 # === .NET + SDK setup ===
 fixprefix() {
+    ensure_wine_osu || return 1
+
     info "Resetting Wine prefix..."
     rm -rf "$WINEPREFIX"
     mkdir -p "$WINEPREFIX"
 
     info "Creating new prefix..."
-    WINEPREFIX="$WINEPREFIX" wineboot
+    if ! WINEPREFIX="$WINEPREFIX" "$WINE_OSU_WINEBOOT"; then
+        error "Failed to create the Wine prefix."
+        return 1
+    fi
 
     info "Setting Windows version to 10..."
-    wine reg add "HKCU\\Software\\Wine\\Wine\\Config" /v Version /t REG_SZ /d win10 /f
+    if ! "$WINE_OSU_BIN" reg add "HKCU\\Software\\Wine\\Wine\\Config" /v Version /t REG_SZ /d win10 /f; then
+        error "Failed to configure the Wine prefix."
+        return 1
+    fi
 
     TMP=$(mktemp -d)
 
-    info "Installing .NET Desktop Runtime 8.0.8 (x86)..."
-    local runtime_url="https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/8.0.8/windowsdesktop-runtime-8.0.8-win-x86.exe"
+    info "Installing .NET Desktop Runtime 8.0.8 (x64)..."
+    local runtime_url="https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/8.0.8/windowsdesktop-runtime-8.0.8-win-x64.exe"
     local runtime_file="$TMP/dotnet-runtime.exe"
     download_file "$runtime_url" "$runtime_file" || {
         error "Failed to download .NET Runtime. Please check your internet connection."
-        exit 1
+        rm -rf "$TMP"
+        return 1
     }
-    WINEPREFIX="$WINEPREFIX" wine "$runtime_file" /quiet /norestart
+    if ! WINEPREFIX="$WINEPREFIX" "$WINE_OSU_BIN" "$runtime_file" /quiet /norestart; then
+        error "Failed to install .NET Desktop Runtime."
+        rm -rf "$TMP"
+        return 1
+    fi
 
-    info "Installing .NET SDK 8.0.408 (x86)..."
-    local sdk_url="https://builds.dotnet.microsoft.com/dotnet/Sdk/8.0.408/dotnet-sdk-8.0.408-win-x86.exe"
+    info "Installing .NET SDK 8.0.408 (x64)..."
+    local sdk_url="https://builds.dotnet.microsoft.com/dotnet/Sdk/8.0.408/dotnet-sdk-8.0.408-win-x64.exe"
     local sdk_file="$TMP/dotnet-sdk.exe"
     download_file "$sdk_url" "$sdk_file" || {
         error "Failed to download .NET SDK. Please check your internet connection."
-        exit 1
+        rm -rf "$TMP"
+        return 1
     }
-    WINEPREFIX="$WINEPREFIX" wine "$sdk_file" /quiet /norestart
+    if ! WINEPREFIX="$WINEPREFIX" "$WINE_OSU_BIN" "$sdk_file" /quiet /norestart; then
+        error "Failed to install .NET SDK."
+        rm -rf "$TMP"
+        return 1
+    fi
 
     rm -rf "$TMP"
 
     ensure_drive_mapping
-    setup_vscode_passthrough
-    setup_folder_hijack
+    setup_vscode_passthrough || return 1
+    setup_folder_hijack || return 1
+    mkdir -p "$VERSION_DIR"
+    echo "x64" > "$PREFIX_ARCH_FILE"
     info "Wine prefix with .NET 8.0.8 + SDK ready."
 }
 
 # === Launch Storybrew ===
 launch_storybrew() {
+    ensure_wine_osu || return 1
+    ensure_x64_prefix || return 1
+
     if [[ ! -f "$STORYBREW_EXE" ]]; then
         info "Storybrew not found. Installing..."
-        fixprefix
         install_storybrew
         setup_vscode_passthrough
         setup_folder_hijack
@@ -275,13 +340,15 @@ launch_storybrew() {
     info "Launching Storybrew..."
     ensure_drive_mapping
     cd "$SBREW_PATH" || exit 1
-    WINEPREFIX="$WINEPREFIX" wine cmd /c \
+    WINEPREFIX="$WINEPREFIX" "$WINE_OSU_BIN" cmd /c \
         "set DOTNET_ROOT=C:\\Program Files\\dotnet && S:\\StorybrewEditor.exe"
 }
 
 # === Debug info ===
 debuginfo() {
-    WINEPREFIX="$WINEPREFIX" wine "C:\\Program Files\\dotnet\\dotnet.exe" --list-runtimes
+    ensure_wine_osu || return 1
+    ensure_x64_prefix || return 1
+    WINEPREFIX="$WINEPREFIX" "$WINE_OSU_BIN" "C:\\Program Files\\dotnet\\dotnet.exe" --list-runtimes
 }
 
 # === Desktop entry with icon ===
@@ -362,9 +429,9 @@ check_for_updates() {
     fi
 
     local local_version=$(jq -r .version "$local_version_file")
-    local remote_version=$(curl -s "$remote_version_url" | jq -r .version)
+    local remote_version=$(fetch_url "$remote_version_url" | jq -r .version)
 
-    if [[ "$remote_version" == "null" ]]; then
+    if [[ -z "$remote_version" || "$remote_version" == "null" ]]; then
         error "Failed to fetch remote version."
         exit 1
     fi
@@ -433,8 +500,8 @@ update_wine_osu() {
 
     info "wine-osu: installed version: $installed_version, latest version: $WINE_OSU_VERSION"
 
-    if [ "$installed_version" != "$WINE_OSU_VERSION" ]; then
-        info "Wine-osu update available!"
+    if [ "$installed_version" != "$WINE_OSU_VERSION" ] || [ ! -x "$WINE_OSU_BIN" ]; then
+        info "Wine-osu installation/update required!"
 
         # Wine-osu download URL
         local wine_url="https://github.com/NelloKudo/WineBuilder/releases/download/wine-osu-staging-${WINE_OSU_VERSION}/wine-osu-winello-fonts-wow64-${WINE_OSU_VERSION}-x86_64.tar.xz"
@@ -454,7 +521,11 @@ update_wine_osu() {
 
         # Extract Wine-osu
         info "Installing Wine-osu version $WINE_OSU_VERSION..."
-        tar -xf "$tmp_file" -C "$WINE_OSU_DIR" --strip-components=1
+        if ! tar -xf "$tmp_file" -C "$WINE_OSU_DIR" --strip-components=1; then
+            error "Failed to extract wine-osu."
+            rm -f "$tmp_file"
+            return 1
+        fi
         rm -f "$tmp_file"
 
         # Check if installation was successful
@@ -504,7 +575,7 @@ if [[ -z "$WINE_PATH" ]]; then
     exit 1
 fi
 
-UNIX_PATH=$(wine winepath -u "$WINE_PATH" 2>/dev/null)
+UNIX_PATH=$("$HOME/.local/share/winebrew/wine-osu/bin/winepath" -u "$WINE_PATH" 2>/dev/null)
 
 if [[ -z "$UNIX_PATH" ]]; then
     echo "[run_as_linux] Failed to convert path."
@@ -535,7 +606,11 @@ REGEDIT4
 [-HKEY_CLASSES_ROOT\\Folder\\shell\\open\\ddeexec]
 EOF
 
-    WINEPREFIX="${WINEPREFIX:-$HOME/.sbrewprefix}" wine regedit /tmp/folder_hijack.reg
+    if ! WINEPREFIX="$WINEPREFIX" "$WINE_OSU_BIN" regedit /tmp/folder_hijack.reg; then
+        error "Failed to configure folder opening."
+        rm /tmp/folder_hijack.reg
+        return 1
+    fi
     rm /tmp/folder_hijack.reg
 
     info "Wine will now use xdg-open for folders."

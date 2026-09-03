@@ -9,7 +9,7 @@ This script sets up a clean Wine prefix, installs the required .NET Desktop Runt
 - Auto-installs Storybrew to `~/.local/share/sbrew`
 - Creates an isolated Wine prefix just for Storybrew
 - Runs on WineWoW64 (64-bit Wine prefix with 32-bit support)
-- Installs .NET Desktop Runtime 8.0.8 (x86) and SDK 8.0.408
+- Installs .NET Desktop Runtime 8.0.8 (x64) and SDK 8.0.408
 - Installs and updates wine-osu from [NelloKudo](https://github.com/NelloKudo)'s [WineBuilder](https://github.com/NelloKudo/WineBuilder) repository, same powering osu-winello.
 - VSCode passthrough integration (so you can edit scripts from inside Storybrew)
 - Adds a desktop entry with the official Storybrew icon
@@ -47,6 +47,7 @@ Available options:
 - `--help`              Display help information
 - `--fix-prefix`        Recreate Wine prefix and reinstall .NET
 - `--install-storybrew` (Re)download Storybrew to the correct folder
+- `--update-storybrew`  Check for and install Storybrew updates
 - `--setup-vscode`      Recreate the VSCode passthrough script
 - `--install-desktop`   Create a desktop entry for launching
 - `--debug`             Print installed .NET runtimes in the prefix
@@ -55,10 +56,10 @@ Available options:
 
 ## Requirements
 
-- Wine (32-bit support required - some distributions ship with 64-bit only)
 - `jq` and `icoutils` (the install script will try to install them automatically)
 - `git` (for downloading Storybrew)
-- `curl` or `wget` (for downloading the .NET runtimes and wine-osu)
+- `curl` or `wget` (for downloading Storybrew, the .NET runtimes, and wine-osu)
+- `tar` and `xz` (for extracting wine-osu)
 - `unzip` (for extracting the Storybrew zip)
 - `xdg-utils` (for creating the desktop entry)
 - `visual-studio-code-bin` or `code` (for the passthrough script)
