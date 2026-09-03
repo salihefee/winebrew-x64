@@ -549,18 +549,22 @@ update_wine_osu() {
 
 # === Setup run_as_linux ===
 install_run_as_linux() {
-    local script_path="$HOME/.local/bin/run_as_linux"
-
-    if [[ -f "$script_path" ]]; then
-        info "run_as_linux already exists at $script_path"
-        return
+    if [[ -f "$RUN_AS_LINUX_PATH" ]]; then
+        if [[ ! -f "$RUN_AS_LINUX_MARKER" ]] \
+            && ! grep -qF '# Managed by winebrew' "$RUN_AS_LINUX_PATH" \
+            && ! grep -qF 'UNIX_PATH=$(wine winepath -u "$WINE_PATH" 2>/dev/null)' "$RUN_AS_LINUX_PATH"; then
+            error "Cannot install run_as_linux because $RUN_AS_LINUX_PATH already exists."
+            return 1
+        fi
+        info "Updating Winebrew's run_as_linux helper..."
+    else
+        info "Installing run_as_linux helper script..."
     fi
 
-    info "Installing run_as_linux helper script..."
-
     mkdir -p "$HOME/.local/bin"
-    cat <<'EOF' > "$script_path"
+    cat <<'EOF' > "$RUN_AS_LINUX_PATH"
 #!/bin/bash
+# Managed by winebrew
 
 if [ -z "$1" ]; then
     echo "Usage: run_as_linux <command> [wine_path]"
@@ -585,17 +589,20 @@ fi
 "$COMMAND" "$UNIX_PATH" &
 EOF
 
-    chmod +x "$script_path"
-    info "run_as_linux installed at $script_path"
+    chmod +x "$RUN_AS_LINUX_PATH"
+    mkdir -p "$VERSION_DIR"
+    touch "$RUN_AS_LINUX_MARKER"
+    info "run_as_linux installed at $RUN_AS_LINUX_PATH"
 }
 
 # === Hijack folder for Storybrew ===
 setup_folder_hijack() {
-    install_run_as_linux
+    ensure_wine_osu || return 1
+    install_run_as_linux || return 1
 
     info "Applying registry override to use xdg-open for folders..."
 
-    local script_path="/home/$(whoami)/.local/bin/run_as_linux"
+    local script_path="$RUN_AS_LINUX_PATH"
 
     cat > /tmp/folder_hijack.reg <<EOF
 REGEDIT4
@@ -616,6 +623,30 @@ EOF
     info "Wine will now use xdg-open for folders."
 }
 
+# === Uninstall Winebrew ===
+uninstall_winebrew() {
+    echo -n "This will remove Winebrew, Storybrew, wine-osu, and the Wine prefix. Continue? [y/N] "
+    read -r answer
+    if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+        info "Uninstall cancelled."
+        return 0
+    fi
+
+    info "Removing Winebrew..."
+    rm -rf "$WINEPREFIX" "$SBREW_PATH" "$HOME/.local/share/icons/storybrew"
+
+    for backup_dir in "$SBREW_PATH".backup.*; do
+        [[ -d "$backup_dir" ]] && rm -rf "$backup_dir"
+    done
+
+    rm -f "$HOME/.local/share/applications/winebrew-storybrew.desktop"
+    [[ -f "$RUN_AS_LINUX_MARKER" ]] && rm -f "$RUN_AS_LINUX_PATH"
+    rm -rf "$VERSION_DIR"
+    rm -f "$WINEBREW_SCRIPT_PATH"
+
+    info "Winebrew uninstalled successfully."
+}
+
 # === Display help ===
 show_help() {
     cat << EOF
@@ -634,6 +665,7 @@ Options:
   --update-wine-osu       Check for and install updates to wine-osu only
   --debug                 Print installed .NET runtimes in the prefix
   --setup-folders         Configure folder opening in Wine
+  --uninstall             Remove all Winebrew-managed files
 
 When run without options, winebrew will launch Storybrew.
 EOF
@@ -651,6 +683,7 @@ case "$1" in
     --update-wine-osu) update_wine_osu ;;
     --debug) debuginfo ;;
     --setup-folders) setup_folder_hijack ;;
+    --uninstall) uninstall_winebrew ;;
     "") launch_storybrew ;;
     *)
         error "Unknown argument: $1"

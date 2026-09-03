@@ -53,6 +53,8 @@ Available options:
 - `--debug`             Print installed .NET runtimes in the prefix
 - `--update`            Check for updates to the script and wine-osu
 - `--update-wine-osu`   Check for and install updates to wine-osu only
+- `--setup-folders`     Configure folder opening in Wine
+- `--uninstall`         Remove all Winebrew-managed files
 
 ## Requirements
 
