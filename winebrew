@@ -407,8 +407,8 @@ EOF
 # === Check for updates ===
 check_for_updates() {
     local local_version_file="$VERSION_DIR/version.json"
-    local remote_version_url="https://raw.githubusercontent.com/salihefee/winebrew/main/version.json"
-    local remote_script_url="https://raw.githubusercontent.com/salihefee/winebrew/main/winebrew"
+    local remote_version_url="https://raw.githubusercontent.com/salihefee/winebrew-x64/main/version.json"
+    local remote_script_url="https://raw.githubusercontent.com/salihefee/winebrew-x64/main/winebrew"
 
     if [[ ! -f "$local_version_file" ]]; then
         warn "Local version file not found... Creating it."

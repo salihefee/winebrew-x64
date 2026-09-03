@@ -1,4 +1,4 @@
-# winebrew
+# winebrew-x64
 
 A Wine-based launcher and installer script for [Storybrew](https://github.com/damnae/storybrew) on Linux.
 
@@ -25,8 +25,8 @@ This script sets up a clean Wine prefix, installs the required .NET Desktop Runt
 Clone the repository and run the install script:
 
 ```
-git clone https://github.com/salihefee/winebrew.git
-cd winebrew
+git clone https://github.com/salihefee/winebrew-x64.git
+cd winebrew-x64
 chmod +x install.sh
 ./install.sh
 ```
