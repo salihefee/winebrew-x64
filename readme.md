@@ -4,6 +4,9 @@ A Wine-based launcher and installer script for [Storybrew](https://github.com/da
 
 This is a fork of [maotovisk/winebrew](https://github.com/maotovisk/winebrew) updated for Storybrew's x64 releases.
 
+> [!WARNING]
+> This fork is AI-maintained under the supervision of [salihefee](https://github.com/salihefee).
+
 This script sets up a clean Wine prefix, installs the required .NET Desktop Runtime and SDK, downloads Storybrew, installs wine-osu from Nello's WineBuilder, and adds a desktop shortcut with proper icon support.
 
 ## Features
